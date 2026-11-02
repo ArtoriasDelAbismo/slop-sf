@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 test('geodata builds with default paths in a checkout containing spaces and non-ASCII characters', { timeout: 180000 }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'New York 東京 '));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'Santa Fé 東京 '));
   try {
     fs.mkdirSync(path.join(dir, 'tools'));
     fs.mkdirSync(path.join(dir, 'js'));
@@ -28,8 +28,10 @@ test('geodata builds with default paths in a checkout containing spaces and non-
     assert.ok(GEO.roadGraph.links.length > 0);
     assert.ok(GEO.blocks.length > 0);
     const { blockAt } = await import(pathToFileURL(path.join(dir, 'js/city-config.js')).href);
-    assert.equal(blockAt(-575, -225), null, 'Times Square pedestrian plaza remains clear');
-    assert.ok(blockAt(-565, -225), 'The neighboring building block remains intact');
+    assert.equal(blockAt(0, -650), null, 'the Peatonal San Martín splits the blocks either side of it');
+    assert.ok(blockAt(12, -650) && blockAt(-12, -650), 'the blocks either side of the peatonal remain intact');
+    assert.notEqual(blockAt(12, -650), blockAt(-12, -650));
+    assert.equal(blockAt(-67, 61).parkName, 'Plaza 25 de Mayo', 'Plaza 25 de Mayo is a park block');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -1,17 +1,37 @@
-# Slop New York
+# Slop Santa Fe
 
-A New York City simulation built with [three.js](https://threejs.org/), WebGPURenderer, and TSL. Explore Manhattan on foot, by car, by bicycle, or by helicopter.
+A Santa Fe (Argentina) simulation built with [three.js](https://threejs.org/), WebGPURenderer, and TSL, remixed from
+[Slop New York](https://github.com/mrdoob/slop-newyork). Explore the city from Bv. Pellegrini and Bv. Gálvez down to
+the port and the Riacho Santa Fe, on foot, by car, by bicycle, or by helicopter.
 
-[Try it live](https://mrdoob.github.io/slop-newyork/)
+## How the port works
 
-## Make it your own
+The engine was written for Manhattan, so Santa Fe is described in its terms: the north–south calles are its
+"avenues", the east–west calles its "streets", the detailed city its "island". Streets off the straight grid (the
+centro's slightly tilted calles, the Costanera, the diagonals) drive on the street-centreline graph. New York's set
+pieces (boroughs, bridges, Central Park, Midtown landmarks, subway) are switched off.
 
-Fork it, remix it, improve it, break it. Make games, animations, films, experiments, or something completely different. Use it as a starting point and take it wherever you want. Have fun!
+Rebuild the data (Node 22+):
 
-Explore other cities and community remixes in [Slop Cities](https://github.com/zz85/slop-cities).
+```sh
+bash tools/overpass.sh tools/data/osm_santafe.json tools/data/q_santafe.overpassql   # OpenStreetMap extract
+node --max-old-space-size=8192 tools/build-geodata.mjs                                 # streets, blocks, parks, water
+# Google Open Buildings v3 footprints for the Santa Fe bbox (1.5 GB stream, kept out of git):
+curl -sL https://storage.googleapis.com/open-buildings-data/v3/polygons_s2_level_4_gzip/95b_buildings.csv.gz \
+  | zcat | awk -F, 'NR==1 || ($1>-31.70 && $1<-31.58 && $2>-60.76 && $2<-60.66)' > tools/data/cache/gob_santafe.csv
+node --max-old-space-size=8192 tools/build-buildings.mjs
+node --max-old-space-size=8192 tools/build-trees.mjs
+node --test tests/
+```
+
+Building heights come from OpenStreetMap where it has them (a few hundred buildings); every other height is an
+**estimate** by district and footprint size. Most street trees are **estimated** too (a tree every ~9 m along the
+curbs), since OpenStreetMap maps few of them.
 
 ## License and data
 
 The project code is available under the [MIT License](LICENSE).
 
-Geographic data: NYC Open Data (including [building footprints and heights](https://data.cityofnewyork.us/City-Government/BUILDING/5zhs-2jue) and [tree locations](https://data.cityofnewyork.us/Environment/Forestry-Tree-Points/hn5i-inap)), [MTA subway entrances](https://data.ny.gov/Transportation/MTA-Subway-Entrances-and-Exits-2024/i9wp-a4ja), and © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL). Third-party data and dependencies retain their respective licenses.
+Geographic data: © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL); building footprints
+from [Google Open Buildings](https://sites.research.google/open-buildings/) v3 (CC BY 4.0 / ODbL). Third-party data
+and dependencies retain their respective licenses.

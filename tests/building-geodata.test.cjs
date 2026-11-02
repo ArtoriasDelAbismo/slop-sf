@@ -31,10 +31,10 @@ function area(ring) {
 
 test('the compressed survey retains every footprint, courtyard and quantized dimension', async () => {
   const REAL_BUILDINGS = await buildings;
-  assert.equal(REAL_BUILDINGS.length, 37353);
+  assert.equal(REAL_BUILDINGS.length, 59767);
   let holes = 0;
   for (const building of REAL_BUILDINGS) {
-    assert.ok(Number.isInteger(building.height) && building.height >= 1 && building.height <= 472);
+    assert.ok(Number.isInteger(building.height) && building.height >= 1 && building.height <= 150);
     assert.ok(building.year === 0 || (building.year >= 1600 && building.year <= 2100 && building.year % 10 === 0));
     const points = [];
     assert.ok(building.polygons.length > 0);
@@ -59,21 +59,29 @@ test('the compressed survey retains every footprint, courtyard and quantized dim
     assert.equal(building.cx, (building.minX + building.maxX) / 2);
     assert.equal(building.cz, (building.minZ + building.maxZ) / 2);
   }
-  assert.equal(holes, 661);
+  assert.equal(holes, 0); // Open Buildings footprints have no courtyards
 });
 
 test('survey buildings align with the existing city coordinate frame', async () => {
   const REAL_BUILDINGS = await buildings;
-  for (const [name, x, z, height, year] of [
-    ['Empire State Building', -90.5, 685.5, 378, 1930],
-    ['Chrysler Building', 510, -45.75, 289, 1930],
-    ['One World Trade Center', -203.25, 5253.25, 429, 2010]
-  ]) {
-    const building = REAL_BUILDINGS.find(b => b.cx === x && b.cz === z);
-    assert.ok(building, `${name} remains in the measured position.`);
-    assert.equal(building.height, height);
-    assert.equal(building.year, year);
+  const inside = (ring, x, z) => {
+    let hit = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const a = ring[i], b = ring[j];
+      if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) hit = !hit;
+    }
+    return hit;
+  };
+  // Open Buildings footprints under OpenStreetMap's landmark outlines (js/nyc-geodata.js GEO.points)
+  for (const [name, x, z] of [['Catedral Metropolitana', -96, -27], ['Convento de San Francisco', 38, 337]]) {
+    assert.ok(REAL_BUILDINGS.some(b => b.polygons.some(p => inside(p.outer, x, z))), `${name} has a footprint at its OSM position.`);
   }
+  // Every footprint stands in the detailed city
+  const geo = readFileSync(join(__dirname, '../js/nyc-geodata.js'), 'utf8');
+  const flat = new Script(`${geo.replace('export const GEO', 'const GEO')}\nGEO.manhattan`).runInNewContext();
+  const city = [];
+  for (let i = 0; i < flat.length; i += 2) city.push({ x: flat[i], z: flat[i + 1] });
+  for (const b of REAL_BUILDINGS) assert.ok(inside(city, b.cx, b.cz) || b.polygons.some(p => p.outer.some(q => inside(city, q.x, q.z))));
 });
 
 test('building data reports HTTP and gzip failures', async () => {

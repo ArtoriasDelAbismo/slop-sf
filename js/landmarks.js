@@ -17,6 +17,8 @@ function buildLandmarks(scene) {
   const group = new THREE.Group();
   group.name = 'ManhattanLandmarks';
   const colliders = [];
+  // New York's Midtown landmarks stand on the old Midtown superblocks; a city without them (Santa Fe) builds none here
+  if (!getBlockBounds(0, 0)) return { group, colliders };
 
   const limestoneTrimMat = new THREE.MeshStandardNodeMaterial({
     color: 0xdad0bc,

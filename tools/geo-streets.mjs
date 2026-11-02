@@ -1,12 +1,12 @@
 // Part 2: streets & avenues from the CSCL centerline, in the world frame
-import { cscl, segLines, toWorld, log } from './geo-base.mjs';
+import { cscl, segLines, toWorld, log, DETAIL } from './geo-base.mjs';
 
 // Every CSCL roadway piece as world-frame line segments with attributes
 const pieces = [];
 const plazaPieces = [];
 for (const s of cscl) {
   const plaza = s.rw_type === '6' && s.full_street_name === 'BROADWAY';
-  if (!plaza && !['1', '2', '3', '4', '9', '13'].includes(s.rw_type)) continue;
+  if (!plaza && !['1', '2', '6'].includes(s.rw_type)) continue;
   const name = s.full_street_name || '';
   const w = parseFloat(s.streetwidth || '0') * 0.3048; // curb-to-curb roadway width (ft -> m)
   const lanes = parseInt(s.number_travel_lanes || '0', 10);
@@ -46,112 +46,92 @@ function unionIntervals(iv, join = 2) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Numbered cross streets (E/W n ST): z, x-runs with one-way direction and width
+// Grid lines: Santa Fe's calles run straight across the grid, east-west ("streets", numbered 1, 2, ... from the south
+// like Manhattan's) and north-south ("avenues"). Grid-aligned pieces are clustered by their z (streets) or x (avenues);
+// a line keeps every name it carries along its length (Bv. Pellegrini becomes Bv. Gálvez east of Rivadavia).
 // ---------------------------------------------------------------------------------------------------------------------
-const streetRe = /^(E|W)\s+(\d+)\s+ST$/;
-const byNum = new Map();
-for (const p of pieces) {
-  const m = streetRe.exec(p.name);
-  if (!m || p.rw !== '1') continue;
-  if (Math.abs(p.z1 - p.z0) / p.L > 0.08) continue; // grid-aligned pieces only
-  const n = +m[2];
-  if (!byNum.has(n)) byNum.set(n, []);
-  byNum.get(n).push(p);
+const GRID_RW = new Set(['1']);
+const inDetail = (p) => Math.max(p.x0, p.x1) > DETAIL.x0 && Math.min(p.x0, p.x1) < DETAIL.x1 && Math.max(p.z0, p.z1) > DETAIL.z0 && Math.min(p.z0, p.z1) < DETAIL.z1;
+function clusterLines(ps, posOf, tol) {
+  const sorted = ps.map((p) => ({ p, v: posOf(p) })).sort((a, b) => a.v - b.v);
+  const out = [];
+  for (const it of sorted) {
+    const last = out[out.length - 1];
+    if (last && it.v - last.v1 <= tol) { last.items.push(it.p); last.v1 = it.v; }
+    else out.push({ v0: it.v, v1: it.v, items: [it.p] });
+  }
+  return out.map((c) => c.items);
 }
-const STREETS = [];
-for (const [n, ps] of [...byNum].sort((a, b) => a[0] - b[0])) {
-  const z = wmedian(ps.map((p) => [(p.z0 + p.z1) / 2, p.L]));
-  const near = ps.filter((p) => Math.abs((p.z0 + p.z1) / 2 - z) < 12);
-  // Direction of travel along x for each piece: +1 eastbound, -1 westbound, 0 both
+const dominantName = (ps) => {
+  const byName = new Map();
+  for (const p of ps) if (p.name) byName.set(p.name, (byName.get(p.name) || 0) + p.L);
+  return [...byName].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+};
+const slug = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/^(avenida|bulevar|pasaje|calle) /, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+// direction sign along the axis for a piece: +1 towards +axis, -1 towards -axis, 0 both
+const dirAlong = (p, a0, a1) => (p.dir === 'FT' ? Math.sign(a1 - a0) : p.dir === 'TF' ? Math.sign(a0 - a1) : 0);
+function lineSegs(near, axis, join, minLen) {
   const runs = near.map((p) => {
-    let d = 0;
-    if (p.dir === 'FT') d = Math.sign(p.x1 - p.x0);
-    else if (p.dir === 'TF') d = Math.sign(p.x0 - p.x1);
-    return { a: Math.min(p.x0, p.x1), b: Math.max(p.x0, p.x1), d, w: p.w, L: p.L };
+    const [a0, a1] = axis === 'x' ? [p.x0, p.x1] : [p.z0, p.z1];
+    return { a: Math.min(a0, a1), b: Math.max(a0, a1), d: dirAlong(p, a0, a1), w: p.w, L: p.L, lanes: p.lanes, name: p.name };
   });
-  const iv = unionIntervals(runs.map((r) => [r.a, r.b]), 3);
-  const segs = iv.map(([a, b]) => {
-    const inside = runs.filter((r) => r.a >= a - 1 && r.b <= b + 1);
-    const votes = { '-1': 0, '0': 0, '1': 0 };
-    for (const r of inside) votes[r.d] += r.L;
-    const d = +Object.entries(votes).sort((p, q) => q[1] - p[1])[0][0];
-    const w = wmedian(inside.map((r) => [r.w, r.L]));
-    return [Math.round(a * 10) / 10, Math.round(b * 10) / 10, d, Math.round(w * 10) / 10];
-  });
-  STREETS.push({ n, z: Math.round(z * 10) / 10, segs });
-}
-log(`${STREETS.length} numbered streets (1st..${STREETS[STREETS.length - 1].n}th)`);
-
-// ---------------------------------------------------------------------------------------------------------------------
-// Avenues: grid-aligned lines (x) carrying one or more CSCL names along z
-// ---------------------------------------------------------------------------------------------------------------------
-const AVENUE_LINES = [
-  // id, CSCL names (north to south), display names
-  ['riverside', ['RIVERSIDE DR'], 'Riverside Dr'],
-  ['11', ['W  END AVE', '11 AVE'], '11th Ave / West End Ave'],
-  ['10', ['AMSTERDAM AVE', '10 AVE'], '10th Ave / Amsterdam Ave'],
-  ['9', ['COLUMBUS AVE', '9 AVE'], '9th Ave / Columbus Ave'],
-  ['manhattan', ['MANHATTAN AVE'], 'Manhattan Ave'],
-  ['8', ['FREDERICK DOUGLASS BLVD', 'CENTRAL PARK W', '8 AVE'], '8th Ave / Central Park West'],
-  ['st_nicholas', ['ST NICHOLAS AVE'], 'St Nicholas Ave'],
-  ['7', ['ADAM CLAYTON POWELL JR BLVD', '7 AVE'], '7th Ave / Adam Clayton Powell Jr Blvd'],
-  ['6', ['LENOX AVE', 'MALCOLM X BLVD', 'AVE OF THE AMERICAS'], '6th Ave / Lenox Ave'],
-  ['5', ['5 AVE'], '5th Ave'],
-  ['madison', ['MADISON AVE'], 'Madison Ave'],
-  ['park', ['PARK AVE', 'PARK AVE S'], 'Park Ave'],
-  ['lex', ['LEXINGTON AVE'], 'Lexington Ave'],
-  ['3', ['3 AVE'], '3rd Ave'],
-  ['2', ['2 AVE'], '2nd Ave'],
-  ['1', ['1 AVE'], '1st Ave'],
-  ['york', ['YORK AVE', 'SUTTON PL', 'PLEASANT AVE', 'AVE A'], 'York Ave / Ave A'],
-  ['eastend', ['E  END AVE', 'AVE B'], 'East End Ave / Ave B'],
-  ['c', ['AVE C'], 'Ave C'],
-  ['d', ['AVE D'], 'Ave D'],
-  ['vanderbilt', ['VANDERBILT AVE'], 'Vanderbilt Ave'],
-  ['university', ['UNIVERSITY PL'], 'University Pl'],
-  ['irving', ['IRVING PL'], 'Irving Pl']
-];
-const AVENUES = [];
-for (const [id, names, label] of AVENUE_LINES) {
-  const ps = pieces.filter((p) => names.includes(p.name) && Math.abs(p.x1 - p.x0) / p.L < 0.08 && ['1', '2'].includes(p.rw));
-  if (!ps.length) continue;
-  const x = wmedian(ps.map((p) => [(p.x0 + p.x1) / 2, p.L]));
-  const near = ps.filter((p) => Math.abs((p.x0 + p.x1) / 2 - x) < 25);
-  const runs = near.map((p) => {
-    let d = 0;
-    if (p.dir === 'FT') d = Math.sign(p.z1 - p.z0);
-    else if (p.dir === 'TF') d = Math.sign(p.z0 - p.z1);
-    return { a: Math.min(p.z0, p.z1), b: Math.max(p.z0, p.z1), d, w: p.w, L: p.L, lanes: p.lanes, name: p.name };
-  });
-  const iv = unionIntervals(runs.map((r) => [r.a, r.b]), 40);
-  const segs = iv.map(([a, b]) => {
+  const iv = unionIntervals(runs.map((r) => [r.a, r.b]), join);
+  return iv.map(([a, b]) => {
     const inside = runs.filter((r) => r.a >= a - 1 && r.b <= b + 1);
     const votes = { '-1': 0, '0': 0, '1': 0 };
     for (const r of inside) votes[r.d] += r.L;
     const d = +Object.entries(votes).sort((p, q) => q[1] - p[1])[0][0];
     const w = wmedian(inside.map((r) => [r.w, r.L]));
     const lanes = wmedian(inside.map((r) => [r.lanes, r.L]));
-    // name sections along z
     const secs = [];
     for (const r of inside.sort((p, q) => p.a - q.a)) {
       const last = secs[secs.length - 1];
       if (last && last[2] === r.name) last[1] = Math.max(last[1], r.b);
-      else secs.push([r.a, r.b, r.name]);
+      else if (r.name) secs.push([r.a, r.b, r.name]);
     }
-    return { z0: Math.round(a), z1: Math.round(b), dir: d, w: Math.round(w * 10) / 10, lanes, names: secs.map(([s0, s1, nm]) => [Math.round(s0), Math.round(s1), nm]) };
-  }).filter((s) => s.z1 - s.z0 > 60);
+    return { a, b, d, w, lanes, names: secs.map(([s0, s1, nm]) => [Math.round(s0), Math.round(s1), nm]) };
+  }).filter((s) => s.b - s.a >= minLen);
+}
+const gridPieces = pieces.filter((p) => GRID_RW.has(p.rw) && p.level === '13' && p.name && inDetail(p));
+const ewPieces = gridPieces.filter((p) => Math.abs(p.z1 - p.z0) / p.L < 0.03); // within ~1.7° (tilted sectors go to the road graph)
+const nsPieces = gridPieces.filter((p) => Math.abs(p.x1 - p.x0) / p.L < 0.03);
+
+const STREETS = [];
+for (const ps of clusterLines(ewPieces, (p) => (p.z0 + p.z1) / 2, 8)) {
+  const total = ps.reduce((t, p) => t + p.L, 0);
+  if (total < 250) continue;
+  const z = wmedian(ps.map((p) => [(p.z0 + p.z1) / 2, p.L]));
+  const near = ps.filter((p) => Math.abs((p.z0 + p.z1) / 2 - z) < 12);
+  const segs = lineSegs(near, 'x', 3, 30);
+  if (!segs.length) continue;
+  STREETS.push({ z: Math.round(z * 10) / 10, name: dominantName(near), segs });
+}
+STREETS.sort((a, b) => b.z - a.z); // south (largest z) first
+STREETS.forEach((s, i) => { s.n = i + 1; });
+const streetsOut = STREETS.map((s) => ({
+  n: s.n, z: s.z, name: s.name,
+  segs: s.segs.map((g) => [Math.round(g.a * 10) / 10, Math.round(g.b * 10) / 10, g.d, Math.round(g.w * 10) / 10]),
+  names: s.segs.flatMap((g) => g.names)
+}));
+log(`${streetsOut.length} east-west grid streets (${streetsOut.slice(0, 4).map((s) => `${s.n} ${s.name} z=${s.z}`).join(', ')}, ...)`);
+
+const AVENUES = [];
+const usedIds = new Set();
+for (const ps of clusterLines(nsPieces, (p) => (p.x0 + p.x1) / 2, 8)) {
+  const total = ps.reduce((t, p) => t + p.L, 0);
+  if (total < 250) continue;
+  const x = wmedian(ps.map((p) => [(p.x0 + p.x1) / 2, p.L]));
+  const near = ps.filter((p) => Math.abs((p.x0 + p.x1) / 2 - x) < 12);
+  const segs = lineSegs(near, 'z', 40, 60).map((g) => ({ z0: Math.round(g.a), z1: Math.round(g.b), dir: g.d, w: Math.round(g.w * 10) / 10, lanes: g.lanes, names: g.names }));
+  if (!segs.length) continue;
+  const label = dominantName(near);
+  let id = slug(label) || `x${Math.round(x)}`;
+  while (usedIds.has(id)) id += '_';
+  usedIds.add(id);
   AVENUES.push({ id, label, x: Math.round(x * 10) / 10, segs });
 }
+AVENUES.sort((a, b) => a.x - b.x);
+log(`${AVENUES.length} north-south grid avenues (${AVENUES.filter((a) => Math.abs(a.x) < 400).map((a) => `${a.label} x=${a.x}`).join(', ')}, ...)`);
 
-export { pieces, plazaPieces, STREETS, AVENUES, wmedian, unionIntervals };
+export { pieces, plazaPieces, streetsOut as STREETS, AVENUES, wmedian, unionIntervals };
 
-if (process.argv[1] && process.argv[1].endsWith('geo-streets.mjs')) {
-  for (const s of STREETS) {
-    if (s.n % 1 === 0 && (s.n <= 20 || s.n % 5 === 0 || [42, 34, 23, 57, 59, 72, 79, 86, 96, 110, 116, 125].includes(s.n))) {
-      console.log(`${String(s.n).padStart(3)} z=${String(s.z).padStart(8)}  ${s.segs.map(([a, b, d, w]) => `[${Math.round(a)}..${Math.round(b)} ${d > 0 ? 'E' : d < 0 ? 'W' : 'B'} ${w}m]`).join(' ')}`);
-    }
-  }
-  for (const a of AVENUES) {
-    console.log(`${a.id.padEnd(12)} x=${String(a.x).padStart(8)}  ${a.segs.map((s) => `[${s.z0}..${s.z1} ${s.dir > 0 ? 'S' : s.dir < 0 ? 'N' : 'B'} ${s.w}m ${s.lanes}L ${s.names.map((n) => n[2]).join('/')}]`).join(' ')}`);
-  }
-}

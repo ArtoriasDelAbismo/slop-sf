@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const test = require('node:test');
@@ -25,7 +24,7 @@ const trees = loadTrees();
 test('survey tree locations are unique, quantized and inside the detailed map', async () => {
   const REAL_TREES = await trees;
   assert.ok(REAL_TREES instanceof Float32Array);
-  assert.equal(REAL_TREES.length, 70680 * 2);
+  assert.equal(REAL_TREES.length, 26511 * 2);
   const geo = readFileSync(join(__dirname, '../js/nyc-geodata.js'), 'utf8');
   const ring = new Script(`${geo.replace('export const GEO', 'const GEO')}\nGEO.manhattan`).runInNewContext();
   function inside(x, z) {
@@ -46,24 +45,28 @@ test('survey tree locations are unique, quantized and inside the detailed map', 
     // Boundary locations may move up to 0.25 m on each axis when rounded.
     assert.ok(inside(x, z) || [-0.25, 0.25].some(dx => [-0.25, 0.25].some(dz => inside(x + dx, z + dz))));
   }
-  for (const key of ['-35.5,57.5', '549.5,5512', '459,-4232.5']) {
-    assert.ok(seen.has(key), 'Sampled Midtown, Lower Manhattan and Upper East Side trees retain their positions.');
-  }
 });
 
 test('tree generator filters and deduplicates locations, and signed deltas round trip', async () => {
-  const bytes = execFileSync('python3', ['-B', '-c', `
-import runpy, sys
-m = runpy.run_path('tools/build-trees.py')
-m['prepare'].__globals__['load_frame'] = lambda: (lambda x, z: (x, z), [(0, 0), (100, 0), (100, 100), (0, 100)])
-def row(x, z, structure='Full', condition='Good'):
-    return {'location': {'coordinates': [x, z]}, 'tpstructure': structure, 'tpcondition': condition}
-points = m['prepare']([row(1.1, 2.1), row(1.2, 2.2), row(90, 80), row(3, 4, condition='Dead'),
-    row(5, 6, structure='Stump'), row(-10, 5), row(float('nan'), 1)])
-assert set(points) == {(2, 4), (180, 160)}
-sys.stdout.buffer.write(m['pack']([(-8192, 127), (16385, -16385), (0, 0), (-1, 1)]))
-`], { cwd: join(__dirname, '..') });
+  const { prepare, pack, streetTreeCandidates } = await import('../tools/build-trees.mjs');
+  const square = [[0, 0], [100, 0], [100, 100], [0, 100]];
+  const points = prepare([[1.1, 2.1], [1.2, 2.2], [90, 80], [-10, 5], [NaN, 1]], square);
+  assert.deepEqual(new Set(points.map(p => p.join(','))), new Set(['2,4', '180,160']));
+  assert.throws(() => prepare([[-10, 5]], square), /No trees/);
+  const bytes = pack([[-8192, 127], [16385, -16385], [0, 0], [-1, 1]]);
   assert.deepEqual(Array.from(await loadTrees(gzipSync(bytes))), [-4096, 63.5, 8192.5, -8192.5, 0, 0, -0.5, 0.5]);
+  // Estimated street trees stand just inside a block's curb (here a barrio block outside the microcentro), never in
+  // parks or along medians
+  const X = 1000;
+  const block = (park) => [[X, 0, X + 100, 0, X + 100, 80, X, 80], [], park];
+  const trees = streetTreeCandidates([block(0)]);
+  assert.ok(trees.length > 10);
+  for (const [x, z] of trees) {
+    const d = Math.min(x - X, X + 100 - x, z, 80 - z);
+    assert.ok(d > 0.9 && d < 1.1);
+  }
+  assert.equal(streetTreeCandidates([block(1)]).length, 0);
+  assert.equal(streetTreeCandidates([[[0, 0, 100, 0, 100, 8, 0, 8], [], 0]]).length, 0);
 });
 
 test('tree data reports HTTP and gzip failures', async () => {

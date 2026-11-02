@@ -1,0 +1,20 @@
+[out:json][timeout:300];
+(
+  way["highway"](-31.70,-60.76,-31.58,-60.66);
+  way["natural"~"^(water|wetland|coastline)$"](-31.70,-60.76,-31.58,-60.66);
+  relation["natural"~"^(water|wetland)$"](-31.70,-60.76,-31.58,-60.66);
+  way["waterway"~"^(river|riverbank|canal|dock)$"](-31.70,-60.76,-31.58,-60.66);
+  way["leisure"~"^(park|garden|pitch|playground)$"](-31.70,-60.76,-31.58,-60.66);
+  relation["leisure"="park"](-31.70,-60.76,-31.58,-60.66);
+  way["landuse"~"^(grass|recreation_ground|cemetery|railway|industrial|port)$"](-31.70,-60.76,-31.58,-60.66);
+  way["railway"](-31.70,-60.76,-31.58,-60.66);
+  way["man_made"~"^(pier|bridge)$"](-31.70,-60.76,-31.58,-60.66);
+  way["building"]["name"](-31.70,-60.76,-31.58,-60.66);
+  relation["building"]["name"](-31.70,-60.76,-31.58,-60.66);
+  way["building"]["building:levels"](-31.70,-60.76,-31.58,-60.66);
+  way["building"]["height"](-31.70,-60.76,-31.58,-60.66);
+  way["historic"](-31.70,-60.76,-31.58,-60.66);
+  way["amenity"="place_of_worship"](-31.70,-60.76,-31.58,-60.66);
+  node["natural"="tree"](-31.70,-60.76,-31.58,-60.66);
+);
+out body geom;

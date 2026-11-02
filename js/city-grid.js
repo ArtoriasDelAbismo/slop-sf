@@ -1568,8 +1568,9 @@ function buildCityGrid(scene) {
       const inner = offsetPolygonInward(b.poly, 0.25);
       if (inner) slabGeos.push(createExtrudedPolygonMesh(inner, 0.03, SW_TOP - 0.03, sidewalkMat).geometry);
       // rect cover for the consumers that work on rectangles: the lot rects grown back out to the curb
+      const grow = GEO.frame.sidewalk - 0.2;
       for (const [x0, x1, z0, z1] of b.rects) {
-        const r = { minX: x0 - 4.4, maxX: x1 + 4.4, minZ: z0 - 4.4, maxZ: z1 + 4.4 };
+        const r = { minX: x0 - grow, maxX: x1 + grow, minZ: z0 - grow, maxZ: z1 + grow };
         blockSidewalks.push({ cx: (r.minX + r.maxX) * 0.5, cz: (r.minZ + r.maxZ) * 0.5, w: r.maxX - r.minX, d: r.maxZ - r.minZ, block: b, cover: true });
         if (!b.median) roadSidewalks.push(r);
       }
@@ -1836,182 +1837,187 @@ function buildCityGrid(scene) {
     for (let i = 0; i < flat.length; i += 2) o.push({ x: flat[i], z: flat[i + 1] });
     return o;
   };
-  const cpSite = (name) => CPG.sites.find((t) => t.name === name);
+  // New York only: a city without Central Park data (Santa Fe) skips the park, Grand Army Plaza & Columbus Circle
+  centralParkClearings = { polygons: [], drives: [], transverseZ: [], rects: [], circles: [], mall: null };
+  if (CPG.outline.length) {
+    const cpSite = (name) => CPG.sites.find((t) => t.name === name);
 
-  // Perimeter sidewalk: the park's curb island (BLOCKS), with the schist wall along the real park line inside it
-  const cpBlock = BLOCKS.filter((b) => b.parkName === 'Central Park').sort((a, b) => b.area - a.area)[0];
-  if (cpBlock) {
-    group.add(createExtrudedPolygonMesh(cpBlock.poly, 0.0, 0.18, curbMat, true, true));
-    const sw = offsetPolygonInward(cpBlock.poly, 0.25);
-    if (sw) group.add(createExtrudedPolygonMesh(sw, 0.03, 0.19, sidewalkMat));
-    addFootprint((cpBlock.minX + cpBlock.maxX) * 0.5, (cpBlock.minZ + cpBlock.maxZ) * 0.5, cpBlock.maxX - cpBlock.minX, cpBlock.maxZ - cpBlock.minZ);
-  }
-  // Low coursed-schist perimeter wall (~0.8 m above the sidewalk) with the lawn a little inside it
-  const cpWall = flatPts(CPG.outline);
-  group.add(createExtrudedPolygonMesh(cpWall, 0.0, 1.05, createParkWallMaterial(), true, false));
-  addStreetGround(cpWall, 1.05);
-  const cpLawnPts = offsetPolygonInward(cpWall, 0.6) || cpWall;
-  group.add(createExtrudedPolygonMesh(cpLawnPts, 0.85, 0.34, cpLawnMat, true, false));
-  addStreetGround(cpLawnPts, 1.19);
-
-  // Sunlit open meadows & lawns: Sheep Meadow, the Great Lawn, North Meadow, the Great Hill, Cedar & Pilgrim Hills...
-  const cpLawnPolys = CPG.lawns.map((l) => flatPts(l.ring));
-  for (const pts of cpLawnPolys) {
-    group.add(createFlatPolygonMesh(pts, 1.21, cpMeadowMat, true));
-    addStreetGround(pts, 1.21);
-  }
-
-  // Water: the Lake, the Jacqueline Kennedy Onassis Reservoir (raised in its stone basin, ringed by the running
-  // track), Harlem Meer, the Pond, Turtle Pond, the Pool & Conservatory Water
-  const cpWaterPolys = [];
-  for (const w of CPG.water) {
-    const pts = flatPts(w.ring);
-    cpWaterPolys.push(pts);
-    if (w.name === 'Jacqueline Kennedy Onassis Reservoir') {
-      const track = offsetPolygon(pts, -6);
-      if (track) group.add(createExtrudedPolygonMesh(track, 1.18, 0.38, cpPathMat, true, false));
-      group.add(createFlatPolygonMesh(pts, 1.58, waterMat, true));
-    } else {
-      group.add(createFlatPolygonMesh(pts, 1.24, waterMat, true));
+    // Perimeter sidewalk: the park's curb island (BLOCKS), with the schist wall along the real park line inside it
+    const cpBlock = BLOCKS.filter((b) => b.parkName === 'Central Park').sort((a, b) => b.area - a.area)[0];
+    if (cpBlock) {
+      group.add(createExtrudedPolygonMesh(cpBlock.poly, 0.0, 0.18, curbMat, true, true));
+      const sw = offsetPolygonInward(cpBlock.poly, 0.25);
+      if (sw) group.add(createExtrudedPolygonMesh(sw, 0.03, 0.19, sidewalkMat));
+      addFootprint((cpBlock.minX + cpBlock.maxX) * 0.5, (cpBlock.minZ + cpBlock.maxZ) * 0.5, cpBlock.maxX - cpBlock.minX, cpBlock.maxZ - cpBlock.minZ);
     }
-  }
+    // Low coursed-schist perimeter wall (~0.8 m above the sidewalk) with the lawn a little inside it
+    const cpWall = flatPts(CPG.outline);
+    group.add(createExtrudedPolygonMesh(cpWall, 0.0, 1.05, createParkWallMaterial(), true, false));
+    addStreetGround(cpWall, 1.05);
+    const cpLawnPts = offsetPolygonInward(cpWall, 0.6) || cpWall;
+    group.add(createExtrudedPolygonMesh(cpLawnPts, 0.85, 0.34, cpLawnMat, true, false));
+    addStreetGround(cpLawnPts, 1.19);
 
-  // The loop drives (East, West, Center & Terrace Drives, car-free) and the four transverse roads crossing the park
-  const cpDrives = [];
-  const cpTransverses = [];
-  function buildParkDriveRibbon(waypoints, width, y) {
-    for (let i = 0; i < waypoints.length - 1; i++) {
-      const [x1, z1] = waypoints[i];
-      const [x2, z2] = waypoints[i + 1];
-      const dx = x2 - x1;
-      const dz = z2 - z1;
-      const len = Math.hypot(dx, dz) + Math.min(2.5, width * 0.3);
-      if (len < 0.5) continue;
-      const seg = new THREE.Mesh(new THREE.BoxGeometry(width, 0.08, len), cpDriveMat);
-      seg.position.set((x1 + x2) * 0.5, y, (z1 + z2) * 0.5);
-      seg.rotation.y = Math.atan2(dx, dz);
-      seg.receiveShadow = true;
-      group.add(seg);
+    // Sunlit open meadows & lawns: Sheep Meadow, the Great Lawn, North Meadow, the Great Hill, Cedar & Pilgrim Hills...
+    const cpLawnPolys = CPG.lawns.map((l) => flatPts(l.ring));
+    for (const pts of cpLawnPolys) {
+      group.add(createFlatPolygonMesh(pts, 1.21, cpMeadowMat, true));
+      addStreetGround(pts, 1.21);
     }
-  }
-  for (const d of CPG.drives) {
-    const wp = [];
-    for (let i = 0; i < d.pts.length; i += 2) wp.push([d.pts[i], d.pts[i + 1]]);
-    if (wp.length < 2) continue;
-    if (d.transverse) {
-      cpTransverses.push(wp);
-      buildParkDriveRibbon(wp, Math.max(9, d.w || 10), 1.215);
-    } else {
-      cpDrives.push(wp);
-      buildParkDriveRibbon(wp, d.w || 8.5, 1.20);
+
+    // Water: the Lake, the Jacqueline Kennedy Onassis Reservoir (raised in its stone basin, ringed by the running
+    // track), Harlem Meer, the Pond, Turtle Pond, the Pool & Conservatory Water
+    const cpWaterPolys = [];
+    for (const w of CPG.water) {
+      const pts = flatPts(w.ring);
+      cpWaterPolys.push(pts);
+      if (w.name === 'Jacqueline Kennedy Onassis Reservoir') {
+        const track = offsetPolygon(pts, -6);
+        if (track) group.add(createExtrudedPolygonMesh(track, 1.18, 0.38, cpPathMat, true, false));
+        group.add(createFlatPolygonMesh(pts, 1.58, waterMat, true));
+      } else {
+        group.add(createFlatPolygonMesh(pts, 1.24, waterMat, true));
+      }
     }
+
+    // The loop drives (East, West, Center & Terrace Drives, car-free) and the four transverse roads crossing the park
+    const cpDrives = [];
+    const cpTransverses = [];
+    function buildParkDriveRibbon(waypoints, width, y) {
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        const [x1, z1] = waypoints[i];
+        const [x2, z2] = waypoints[i + 1];
+        const dx = x2 - x1;
+        const dz = z2 - z1;
+        const len = Math.hypot(dx, dz) + Math.min(2.5, width * 0.3);
+        if (len < 0.5) continue;
+        const seg = new THREE.Mesh(new THREE.BoxGeometry(width, 0.08, len), cpDriveMat);
+        seg.position.set((x1 + x2) * 0.5, y, (z1 + z2) * 0.5);
+        seg.rotation.y = Math.atan2(dx, dz);
+        seg.receiveShadow = true;
+        group.add(seg);
+      }
+    }
+    for (const d of CPG.drives) {
+      const wp = [];
+      for (let i = 0; i < d.pts.length; i += 2) wp.push([d.pts[i], d.pts[i + 1]]);
+      if (wp.length < 2) continue;
+      if (d.transverse) {
+        cpTransverses.push(wp);
+        buildParkDriveRibbon(wp, Math.max(9, d.w || 10), 1.215);
+      } else {
+        cpDrives.push(wp);
+        buildParkDriveRibbon(wp, d.w || 8.5, 1.20);
+      }
+    }
+
+    // Stone arch bridges: Gapstow Bridge over the Pond, Bow Bridge across the Lake (spanning their real headings)
+    const gapstow = cpSite('Gapstow Bridge');
+    if (gapstow) addStoneArchBridge(group, gapstow.x, gapstow.z, -gapstow.ang, 24.0, 5.2, 2.25, cpWallMat, cpPathMat);
+    const bow = cpSite('Bow Bridge');
+    if (bow) addStoneArchBridge(group, bow.x, bow.z, -bow.ang, 30.0, 4.8, 2.1, marbleArchMat, cpPathMat);
+
+    // The Mall / Literary Walk (66th to 72nd St) up to Bethesda Terrace & the Angel of the Waters fountain: hex asphalt
+    // pavers (the park paving's style 0) under the elm allée, not the pale gravel of the walks, which read as a white strip
+    const beth = cpSite('Bethesda Fountain') || { x: -380, z: -2434 };
+    const MALL_LEN = 390;
+    const mallX = beth.x + 6;
+    const mallZ0 = beth.z + 46; // Bethesda Terrace's south (upper) terrace
+    const mallGeo = new THREE.BoxGeometry(18, 0.16, MALL_LEN);
+    setPavingStyle(mallGeo, 0);
+    const mallPromenade = new THREE.Mesh(mallGeo, pavingMat);
+    mallPromenade.position.set(mallX, 1.18, mallZ0 + MALL_LEN * 0.5);
+    mallPromenade.receiveShadow = true;
+    group.add(mallPromenade);
+    const bethesdaTerrace = new THREE.Mesh(new THREE.BoxGeometry(48, 2.2, 16), marbleArchMat);
+    bethesdaTerrace.position.set(beth.x + 4, 1.8, beth.z + 20);
+    group.add(bethesdaTerrace);
+    const bethesdaBasin = new THREE.Mesh(new THREE.CylinderGeometry(9.5, 10.2, 1.1, 20), marbleArchMat);
+    bethesdaBasin.position.set(beth.x, 1.5, beth.z);
+    group.add(bethesdaBasin);
+    const bethesdaStatue = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.8, 1.6, 5.2, 10),
+      new THREE.MeshStandardNodeMaterial({ color: 0x5c7a68, metalness: 0.65, roughness: 0.35 })
+    );
+    bethesdaStatue.position.set(beth.x, 3.8, beth.z);
+    group.add(bethesdaStatue);
+
+    // Manhattan Schist glacial outcrops: Umpire Rock (by the Heckscher ballfields), Rat Rock (Billy Johnson Playground),
+    // Vista Rock under Belvedere Castle, a couple near the Pond & the Lake
+    const belv = cpSite('Belvedere Castle') || { x: -506, z: -3000 };
+    const rockGeo = buildManhattanSchistGeometry();
+    const rockCoords = [
+      { x: -585, z: -1745, sx: 2.1, sy: 0.78, sz: 1.65 }, // Umpire Rock
+      { x: -430, z: -1690, sx: 1.7, sy: 0.65, sz: 1.40 }, // Rat Rock
+      { x: belv.x - 2, z: belv.z + 6, sx: 2.3, sy: 1.25, sz: 1.85 }, // Vista Rock (under Belvedere Castle)
+      { x: -150, z: -1700, sx: 1.5, sy: 0.62, sz: 1.30 },
+      { x: -690, z: -2700, sx: 1.8, sy: 0.72, sz: 1.50 }
+    ];
+    for (const rc of rockCoords) {
+      const rock = new THREE.Mesh(rockGeo, schistRockMat);
+      rock.position.set(rc.x, 1.05, rc.z);
+      rock.scale.set(rc.sx, rc.sy, rc.sz);
+      rock.rotation.y = rc.x * 0.12;
+      rock.castShadow = true;
+      rock.receiveShadow = true;
+      group.add(rock);
+
+      // Flanking lower glacial schist bedrock shelf
+      const shelf = new THREE.Mesh(rockGeo, schistRockMat);
+      shelf.position.set(rc.x + 5.2, 0.92, rc.z + 3.4);
+      shelf.scale.set(rc.sx * 0.72, rc.sy * 0.52, rc.sz * 0.68);
+      shelf.rotation.y = rc.x * 0.12 + 1.1;
+      shelf.castShadow = true;
+      shelf.receiveShadow = true;
+      group.add(shelf);
+    }
+
+    // Belvedere Castle overlooking Vista Rock & Turtle Pond (79th St)
+    const castleKeep = new THREE.Mesh(new THREE.BoxGeometry(12, 11, 10), cpWallMat);
+    castleKeep.position.set(belv.x, 10.5, belv.z);
+    group.add(castleKeep);
+    const castleTurret = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.4, 16, 12), cpWallMat);
+    castleTurret.position.set(belv.x + 6, 13.0, belv.z + 3);
+    group.add(castleTurret);
+
+    // Areas the Central Park woodland (street-details.js section 7) must keep clear: meadows, water, the loop
+    // drives, the transverses, the Mall elm allée, Bethesda Terrace, Belvedere Castle & the schist outcrops
+    const gap = cpSite('Pulitzer Fountain') || { x: -32, z: -1327 };
+    centralParkClearings = {
+      polygons: [...cpLawnPolys, ...cpWaterPolys],
+      drives: [...cpDrives, ...cpTransverses],
+      transverseZ: [],
+      rects: [
+        { minX: mallX - 19, maxX: mallX + 19, minZ: mallZ0, maxZ: mallZ0 + MALL_LEN }, // The Mall & Literary Walk
+        { minX: beth.x - 24, maxX: beth.x + 28, minZ: beth.z - 12, maxZ: beth.z + 30 }, // Bethesda Terrace & fountain
+        { minX: belv.x - 10, maxX: belv.x + 12, minZ: belv.z - 8, maxZ: belv.z + 10 } // Belvedere Castle
+      ],
+      circles: rockCoords.map((rc) => ({ x: rc.x + 2, z: rc.z + 1.5, r: 5.6 * Math.max(rc.sx, rc.sz) + 3 })),
+      mall: { x: mallX, z0: mallZ0, z1: mallZ0 + MALL_LEN }
+    };
+
+    // 6. Grand Army Plaza (5th Ave & 59th St: the Pulitzer Fountain, Sherman's gilded statue) & Columbus Circle
+    const gapPlaza = new THREE.Mesh(new THREE.CylinderGeometry(16, 17, 0.45, 24), marbleArchMat);
+    gapPlaza.position.set(gap.x, 0.25, gap.z);
+    group.add(gapPlaza);
+    addFootprint(gap.x, gap.z, 34, 34);
+    const shermanGold = new THREE.Mesh(
+      new THREE.BoxGeometry(2.4, 4.2, 4.4),
+      new THREE.MeshStandardNodeMaterial({ color: 0xffc938, metalness: 0.78, roughness: 0.22 })
+    );
+    shermanGold.position.set(gap.x, 2.6, gap.z - 28);
+    group.add(shermanGold);
+
+    const colC = cpSite('Columbus Circle') || { x: -860, z: -1375 };
+    const columbusCircle = new THREE.Mesh(new THREE.CylinderGeometry(15, 16, 0.5, 24), marbleArchMat);
+    columbusCircle.position.set(colC.x, 0.25, colC.z);
+    group.add(columbusCircle);
+    addFootprint(colC.x, colC.z, 32, 32);
+    const columbusColumn = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.5, 18, 12), marbleArchMat);
+    columbusColumn.position.set(colC.x, 9.5, colC.z);
+    group.add(columbusColumn);
+
   }
-
-  // Stone arch bridges: Gapstow Bridge over the Pond, Bow Bridge across the Lake (spanning their real headings)
-  const gapstow = cpSite('Gapstow Bridge');
-  if (gapstow) addStoneArchBridge(group, gapstow.x, gapstow.z, -gapstow.ang, 24.0, 5.2, 2.25, cpWallMat, cpPathMat);
-  const bow = cpSite('Bow Bridge');
-  if (bow) addStoneArchBridge(group, bow.x, bow.z, -bow.ang, 30.0, 4.8, 2.1, marbleArchMat, cpPathMat);
-
-  // The Mall / Literary Walk (66th to 72nd St) up to Bethesda Terrace & the Angel of the Waters fountain: hex asphalt
-  // pavers (the park paving's style 0) under the elm allée, not the pale gravel of the walks, which read as a white strip
-  const beth = cpSite('Bethesda Fountain') || { x: -380, z: -2434 };
-  const MALL_LEN = 390;
-  const mallX = beth.x + 6;
-  const mallZ0 = beth.z + 46; // Bethesda Terrace's south (upper) terrace
-  const mallGeo = new THREE.BoxGeometry(18, 0.16, MALL_LEN);
-  setPavingStyle(mallGeo, 0);
-  const mallPromenade = new THREE.Mesh(mallGeo, pavingMat);
-  mallPromenade.position.set(mallX, 1.18, mallZ0 + MALL_LEN * 0.5);
-  mallPromenade.receiveShadow = true;
-  group.add(mallPromenade);
-  const bethesdaTerrace = new THREE.Mesh(new THREE.BoxGeometry(48, 2.2, 16), marbleArchMat);
-  bethesdaTerrace.position.set(beth.x + 4, 1.8, beth.z + 20);
-  group.add(bethesdaTerrace);
-  const bethesdaBasin = new THREE.Mesh(new THREE.CylinderGeometry(9.5, 10.2, 1.1, 20), marbleArchMat);
-  bethesdaBasin.position.set(beth.x, 1.5, beth.z);
-  group.add(bethesdaBasin);
-  const bethesdaStatue = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.8, 1.6, 5.2, 10),
-    new THREE.MeshStandardNodeMaterial({ color: 0x5c7a68, metalness: 0.65, roughness: 0.35 })
-  );
-  bethesdaStatue.position.set(beth.x, 3.8, beth.z);
-  group.add(bethesdaStatue);
-
-  // Manhattan Schist glacial outcrops: Umpire Rock (by the Heckscher ballfields), Rat Rock (Billy Johnson Playground),
-  // Vista Rock under Belvedere Castle, a couple near the Pond & the Lake
-  const belv = cpSite('Belvedere Castle') || { x: -506, z: -3000 };
-  const rockGeo = buildManhattanSchistGeometry();
-  const rockCoords = [
-    { x: -585, z: -1745, sx: 2.1, sy: 0.78, sz: 1.65 }, // Umpire Rock
-    { x: -430, z: -1690, sx: 1.7, sy: 0.65, sz: 1.40 }, // Rat Rock
-    { x: belv.x - 2, z: belv.z + 6, sx: 2.3, sy: 1.25, sz: 1.85 }, // Vista Rock (under Belvedere Castle)
-    { x: -150, z: -1700, sx: 1.5, sy: 0.62, sz: 1.30 },
-    { x: -690, z: -2700, sx: 1.8, sy: 0.72, sz: 1.50 }
-  ];
-  for (const rc of rockCoords) {
-    const rock = new THREE.Mesh(rockGeo, schistRockMat);
-    rock.position.set(rc.x, 1.05, rc.z);
-    rock.scale.set(rc.sx, rc.sy, rc.sz);
-    rock.rotation.y = rc.x * 0.12;
-    rock.castShadow = true;
-    rock.receiveShadow = true;
-    group.add(rock);
-
-    // Flanking lower glacial schist bedrock shelf
-    const shelf = new THREE.Mesh(rockGeo, schistRockMat);
-    shelf.position.set(rc.x + 5.2, 0.92, rc.z + 3.4);
-    shelf.scale.set(rc.sx * 0.72, rc.sy * 0.52, rc.sz * 0.68);
-    shelf.rotation.y = rc.x * 0.12 + 1.1;
-    shelf.castShadow = true;
-    shelf.receiveShadow = true;
-    group.add(shelf);
-  }
-
-  // Belvedere Castle overlooking Vista Rock & Turtle Pond (79th St)
-  const castleKeep = new THREE.Mesh(new THREE.BoxGeometry(12, 11, 10), cpWallMat);
-  castleKeep.position.set(belv.x, 10.5, belv.z);
-  group.add(castleKeep);
-  const castleTurret = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.4, 16, 12), cpWallMat);
-  castleTurret.position.set(belv.x + 6, 13.0, belv.z + 3);
-  group.add(castleTurret);
-
-  // Areas the Central Park woodland (street-details.js section 7) must keep clear: meadows, water, the loop
-  // drives, the transverses, the Mall elm allée, Bethesda Terrace, Belvedere Castle & the schist outcrops
-  const gap = cpSite('Pulitzer Fountain') || { x: -32, z: -1327 };
-  centralParkClearings = {
-    polygons: [...cpLawnPolys, ...cpWaterPolys],
-    drives: [...cpDrives, ...cpTransverses],
-    transverseZ: [],
-    rects: [
-      { minX: mallX - 19, maxX: mallX + 19, minZ: mallZ0, maxZ: mallZ0 + MALL_LEN }, // The Mall & Literary Walk
-      { minX: beth.x - 24, maxX: beth.x + 28, minZ: beth.z - 12, maxZ: beth.z + 30 }, // Bethesda Terrace & fountain
-      { minX: belv.x - 10, maxX: belv.x + 12, minZ: belv.z - 8, maxZ: belv.z + 10 } // Belvedere Castle
-    ],
-    circles: rockCoords.map((rc) => ({ x: rc.x + 2, z: rc.z + 1.5, r: 5.6 * Math.max(rc.sx, rc.sz) + 3 })),
-    mall: { x: mallX, z0: mallZ0, z1: mallZ0 + MALL_LEN }
-  };
-
-  // 6. Grand Army Plaza (5th Ave & 59th St: the Pulitzer Fountain, Sherman's gilded statue) & Columbus Circle
-  const gapPlaza = new THREE.Mesh(new THREE.CylinderGeometry(16, 17, 0.45, 24), marbleArchMat);
-  gapPlaza.position.set(gap.x, 0.25, gap.z);
-  group.add(gapPlaza);
-  addFootprint(gap.x, gap.z, 34, 34);
-  const shermanGold = new THREE.Mesh(
-    new THREE.BoxGeometry(2.4, 4.2, 4.4),
-    new THREE.MeshStandardNodeMaterial({ color: 0xffc938, metalness: 0.78, roughness: 0.22 })
-  );
-  shermanGold.position.set(gap.x, 2.6, gap.z - 28);
-  group.add(shermanGold);
-
-  const colC = cpSite('Columbus Circle') || { x: -860, z: -1375 };
-  const columbusCircle = new THREE.Mesh(new THREE.CylinderGeometry(15, 16, 0.5, 24), marbleArchMat);
-  columbusCircle.position.set(colC.x, 0.25, colC.z);
-  group.add(columbusCircle);
-  addFootprint(colC.x, colC.z, 32, 32);
-  const columbusColumn = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.5, 18, 12), marbleArchMat);
-  columbusColumn.position.set(colC.x, 9.5, colC.z);
-  group.add(columbusColumn);
 
   // 7B. Madison Square Park, Union Square Park, Washington Square Park, Tompkins Square Park & Battery Park
   //     Flush with the sidewalks: hex-paver walks, granite-coped lawn beds with low hoop fences between radial &
@@ -2216,7 +2222,7 @@ function buildCityGrid(scene) {
   };
   const smallParks = {};
   const wsq = parkRect('Washington Square Park');
-  const x5 = avenueX('5');
+  const x5 = wsq ? avenueX('5') : 0;
   for (const [key, def] of Object.entries({
     // diagonal & N-S walks, oval fountain
     madison: parkRect('Madison Square Park', { speciesMix: [0.7, 0.1], cells: [{ extraRays: [-QUARTER, QUARTER], hubR: 6, fountain: 4.2 }] }),
@@ -2231,7 +2237,7 @@ function buildCityGrid(scene) {
   for (const key of Object.keys(smallParks)) parkFrames[key] = buildSmallPark(smallParks[key]);
 
   // Washington Square Arch (white marble, 1892) at the foot of 5th Ave, over the park's north-east entrance
-  const wsArchX = avenueX('5');
+  const wsArchX = parkFrames.washington ? avenueX('5') : 0;
   const wsArchZ = parkFrames.washington ? parkFrames.washington.minZ + 4.6 : 2815;
   if (parkFrames.washington) {
     const archShape = new THREE.Shape();
@@ -2345,129 +2351,133 @@ function buildCityGrid(scene) {
     }
   }
 
-  // ---- The Battery: Castle Clinton at the island's south-west, the esplanade carried around the tip (trees &
-  //      lampposts on the seawall coping behind an iron railing), Peter Minuit Plaza's tree grid before the Whitehall
-  //      Terminal
-  const GPTS = GEO.points;
-  const castleC = { x: GPTS.castleClinton[0], z: GPTS.castleClinton[1], r: 19 }; // Castle Clinton (below)
-  {
-    const COPING_TOP = -0.04; // seawall coping (section 2)
-    const WH = { x: GPTS.whitehallTerminal[0], z: GPTS.whitehallTerminal[1] };
-    const inTerminal = (x, z) => Math.hypot(x - WH.x, z - WH.z) < 48;
-    // Peter Minuit Plaza: honey locusts & planes in a 9 m grid of tree pits, a lamppost & bench pair in every other bay
-    const PM = { x: GPTS.peterMinuitPlaza[0], z: GPTS.peterMinuitPlaza[1] };
-    const pmBlock = blockAtPoint(PM.x, PM.z);
-    if (pmBlock) {
-      const plazaIn = offsetPolygonInward(pmBlock.poly, 3.0);
-      for (let x = pmBlock.minX + 4.5; x < pmBlock.maxX; x += 9) {
-        for (let z = pmBlock.minZ + 4.5; z < pmBlock.maxZ; z += 9) {
-          if (!plazaIn || !inPolygon(x, z, plazaIn) || inTerminal(x, z)) continue;
-          treeSites.push({ x, y: PARK_Y, z, scale: 0.85 + prand(x, z, 5) * 0.3, species: prand(z, x, 6) < 0.55 ? 1 : 0 });
+  // New York only: the Battery & Castle Clinton (skipped without their points of interest)
+  if (GEO.points.castleClinton) {
+    // ---- The Battery: Castle Clinton at the island's south-west, the esplanade carried around the tip (trees &
+    //      lampposts on the seawall coping behind an iron railing), Peter Minuit Plaza's tree grid before the Whitehall
+    //      Terminal
+    const GPTS = GEO.points;
+    const castleC = { x: GPTS.castleClinton[0], z: GPTS.castleClinton[1], r: 19 }; // Castle Clinton (below)
+    {
+      const COPING_TOP = -0.04; // seawall coping (section 2)
+      const WH = { x: GPTS.whitehallTerminal[0], z: GPTS.whitehallTerminal[1] };
+      const inTerminal = (x, z) => Math.hypot(x - WH.x, z - WH.z) < 48;
+      // Peter Minuit Plaza: honey locusts & planes in a 9 m grid of tree pits, a lamppost & bench pair in every other bay
+      const PM = { x: GPTS.peterMinuitPlaza[0], z: GPTS.peterMinuitPlaza[1] };
+      const pmBlock = blockAtPoint(PM.x, PM.z);
+      if (pmBlock) {
+        const plazaIn = offsetPolygonInward(pmBlock.poly, 3.0);
+        for (let x = pmBlock.minX + 4.5; x < pmBlock.maxX; x += 9) {
+          for (let z = pmBlock.minZ + 4.5; z < pmBlock.maxZ; z += 9) {
+            if (!plazaIn || !inPolygon(x, z, plazaIn) || inTerminal(x, z)) continue;
+            treeSites.push({ x, y: PARK_Y, z, scale: 0.85 + prand(x, z, 5) * 0.3, species: prand(z, x, 6) < 0.55 ? 1 : 0 });
+          }
         }
       }
+      // The esplanade around the tip along the deck edge (MANHATTAN_COASTLINE), from Battery Place round to Whitehall:
+      // o = outward normal (toward the harbor)
+      const tip = [];
+      const C = MANHATTAN_COASTLINE;
+      const iStart = C.reduce((bi, p, i) => (p.z > C[bi].z ? i : bi), 0); // southernmost point
+      const onTip = (p) => p.z > castleC.z - 260 && p.x < WH.x + 60 && p.x > castleC.x - 420;
+      // walk both ways from the southernmost point while on the tip
+      const fwd = [];
+      for (let i = iStart, k = 0; k < C.length && onTip(C[i]); i = (i + 1) % C.length, k++) fwd.push(C[i]);
+      const back = [];
+      for (let i = (iStart - 1 + C.length) % C.length, k = 0; k < C.length && onTip(C[i]); i = (i - 1 + C.length) % C.length, k++) back.push(C[i]);
+      tip.push(...back.reverse(), ...fwd);
+      const nearCastle = (x, z, m) => Math.hypot(x - castleC.x, z - castleC.z) < castleC.r + m;
+      let signA = 0;
+      for (let i = 0, j = C.length - 1; i < C.length; j = i++) signA += C[j].x * C[i].z - C[i].x * C[j].z;
+      const edgeO = (a, b) => {
+        const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+        const s0 = signA > 0 ? 1 : -1; // outward = right of travel for a CCW ring
+        return { x: (s0 * (b.z - a.z)) / l, z: (-s0 * (b.x - a.x)) / l };
+      };
+      let k = 0;
+      for (let i = 0; i + 1 < tip.length; i++) {
+        const a = tip[i];
+        const b = tip[i + 1];
+        const len = Math.hypot(b.x - a.x, b.z - a.z);
+        const o = edgeO(a, b);
+        for (let t = 4; t < len - 3; t += 8.5, k++) {
+          const px = a.x + ((b.x - a.x) * t) / len;
+          const pz = a.z + ((b.z - a.z) * t) / len;
+          if (inTerminal(px, pz)) continue;
+          if (k % 3 === 1) addLamp(px - o.x * 3.3, COPING_TOP, pz - o.z * 3.3);
+          else if (!nearCastle(px, pz, 4)) treeSites.push({ x: px - o.x * 4.0, y: COPING_TOP, z: pz - o.z * 4.0, scale: 0.85 + prand(px, pz, 7) * 0.25, species: prand(pz, px, 8) < 0.6 ? 0 : 1, tier: 1 });
+        }
+      }
+      // Iron railing 0.6 m in from the bulkhead on the coping, gapped at the ferry terminal
+      const railSegs = [];
+      for (let i = 0; i + 1 < tip.length; i++) {
+        const a = tip[i];
+        const b = tip[i + 1];
+        const o = edgeO(a, b);
+        const A = { x: a.x - o.x * 0.6, z: a.z - o.z * 0.6 };
+        const B = { x: b.x - o.x * 0.6, z: b.z - o.z * 0.6 };
+        if (inTerminal((A.x + B.x) / 2, (A.z + B.z) / 2)) continue;
+        railSegs.push([A.x, A.z, B.x, B.z]);
+      }
+      if (railSegs.length) parkFenceGeos.push(buildFenceStripGeometry(railSegs, COPING_TOP, 1.1));
     }
-    // The esplanade around the tip along the deck edge (MANHATTAN_COASTLINE), from Battery Place round to Whitehall:
-    // o = outward normal (toward the harbor)
-    const tip = [];
-    const C = MANHATTAN_COASTLINE;
-    const iStart = C.reduce((bi, p, i) => (p.z > C[bi].z ? i : bi), 0); // southernmost point
-    const onTip = (p) => p.z > castleC.z - 260 && p.x < WH.x + 60 && p.x > castleC.x - 420;
-    // walk both ways from the southernmost point while on the tip
-    const fwd = [];
-    for (let i = iStart, k = 0; k < C.length && onTip(C[i]); i = (i + 1) % C.length, k++) fwd.push(C[i]);
-    const back = [];
-    for (let i = (iStart - 1 + C.length) % C.length, k = 0; k < C.length && onTip(C[i]); i = (i - 1 + C.length) % C.length, k++) back.push(C[i]);
-    tip.push(...back.reverse(), ...fwd);
-    const nearCastle = (x, z, m) => Math.hypot(x - castleC.x, z - castleC.z) < castleC.r + m;
-    let signA = 0;
-    for (let i = 0, j = C.length - 1; i < C.length; j = i++) signA += C[j].x * C[i].z - C[i].x * C[j].z;
-    const edgeO = (a, b) => {
-      const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-      const s0 = signA > 0 ? 1 : -1; // outward = right of travel for a CCW ring
-      return { x: (s0 * (b.z - a.z)) / l, z: (-s0 * (b.x - a.x)) / l };
-    };
-    let k = 0;
-    for (let i = 0; i + 1 < tip.length; i++) {
-      const a = tip[i];
-      const b = tip[i + 1];
-      const len = Math.hypot(b.x - a.x, b.z - a.z);
-      const o = edgeO(a, b);
-      for (let t = 4; t < len - 3; t += 8.5, k++) {
-        const px = a.x + ((b.x - a.x) * t) / len;
-        const pz = a.z + ((b.z - a.z) * t) / len;
-        if (inTerminal(px, pz)) continue;
-        if (k % 3 === 1) addLamp(px - o.x * 3.3, COPING_TOP, pz - o.z * 3.3);
-        else if (!nearCastle(px, pz, 4)) treeSites.push({ x: px - o.x * 4.0, y: COPING_TOP, z: pz - o.z * 4.0, scale: 0.85 + prand(px, pz, 7) * 0.25, species: prand(pz, px, 8) < 0.6 ? 0 : 1, tier: 1 });
+
+    // One merged lawn mesh & one alpha-tested iron fence mesh for every small park
+    if (parkLawnGeos.length) {
+      const parkLawnMesh = new THREE.Mesh(mergeGeometries(parkLawnGeos, false), cpLawnMat);
+      parkLawnMesh.receiveShadow = true;
+      group.add(parkLawnMesh);
+    }
+    if (parkFenceGeos.length) {
+      group.add(new THREE.Mesh(mergeGeometries(parkFenceGeos, false), createIronFenceMaterial()));
+    }
+
+    // Historic Castle Clinton National Monument (1811): the round red-sandstone fort at the Battery's west edge, a ring of
+    // thick, slightly battered walls around an open bluestone courtyard, entered through a gate facing the park (+x)
+    {
+      const { x: cx, z: cz, r: R } = castleC;
+      const WALL = 2.6;
+      const H = 7.0;
+      const GATE = 1.8 / R; // half-angle of the 3.6 m gate
+      const sandstone = new THREE.MeshStandardNodeMaterial({ color: 0x8c5244, roughness: 0.78 });
+      // Cylinder angle t puts a vertex at (sin t, cos t): the gate at t = PI / 2
+      const outer = new THREE.CylinderGeometry(R - 0.3, R, H, 56, 1, true, Math.PI / 2 + GATE, Math.PI * 2 - 2 * GATE);
+      const inner = new THREE.CylinderGeometry(R - WALL, R - WALL, H, 56, 1, true, Math.PI / 2 + GATE, Math.PI * 2 - 2 * GATE);
+      const idx = inner.index.array; // face the inner wall into the courtyard
+      for (let i = 0; i < idx.length; i += 3) {
+        const t = idx[i + 1];
+        idx[i + 1] = idx[i + 2];
+        idx[i + 2] = t;
+      }
+      const nrm = inner.attributes.normal.array;
+      for (let i = 0; i < nrm.length; i++) nrm[i] = -nrm[i];
+      const top = new THREE.RingGeometry(R - WALL, R - 0.3, 56, 1, GATE, Math.PI * 2 - 2 * GATE).rotateX(-Math.PI / 2).translate(0, H / 2, 0);
+      const walls = new THREE.Mesh(mergeGeometries([outer, inner, top]), sandstone);
+      walls.position.set(cx, PARK_Y + H / 2, cz);
+      walls.castShadow = true;
+      walls.receiveShadow = true;
+      group.add(walls);
+      // Gate: jambs and the wall carried over it on a lintel; the parapet's granite coping
+      for (const t of [Math.PI / 2 - GATE, Math.PI / 2 + GATE]) {
+        addBox(sandstone, cx + Math.sin(t) * (R - WALL / 2 - 0.15), PARK_Y, cz + Math.cos(t) * (R - WALL / 2 - 0.15), 0.06, H, WALL + 0.3, t);
+      }
+      addBox(sandstone, cx + R - WALL / 2 - 0.15, PARK_Y + 4.3, cz, WALL + 0.3, H - 4.3, 2 * GATE * R + 0.3);
+      const coping = new THREE.Mesh(new THREE.CylinderGeometry(R - 0.15, R - 0.15, 0.32, 56, 1, true), graniteMat);
+      coping.position.set(cx, PARK_Y + H - 0.16, cz);
+      group.add(coping);
+      const yard = new THREE.Mesh(new THREE.CircleGeometry(R - WALL, 48).rotateX(-Math.PI / 2), pavingMat);
+      setPavingStyle(yard.geometry, 2);
+      yard.position.set(cx, PARK_Y + 0.006, cz);
+      yard.receiveShadow = true;
+      group.add(yard);
+      for (let i = treeSites.length - 1; i >= 0; i--) {
+        if (Math.hypot(treeSites[i].x - cx, treeSites[i].z - cz) < R + 3) treeSites.splice(i, 1);
+      }
+      for (let i = lampMatrices.length - 1; i >= 0; i--) {
+        if (Math.hypot(lampMatrices[i].elements[12] - cx, lampMatrices[i].elements[14] - cz) < R + 1) lampMatrices.splice(i, 1);
       }
     }
-    // Iron railing 0.6 m in from the bulkhead on the coping, gapped at the ferry terminal
-    const railSegs = [];
-    for (let i = 0; i + 1 < tip.length; i++) {
-      const a = tip[i];
-      const b = tip[i + 1];
-      const o = edgeO(a, b);
-      const A = { x: a.x - o.x * 0.6, z: a.z - o.z * 0.6 };
-      const B = { x: b.x - o.x * 0.6, z: b.z - o.z * 0.6 };
-      if (inTerminal((A.x + B.x) / 2, (A.z + B.z) / 2)) continue;
-      railSegs.push([A.x, A.z, B.x, B.z]);
-    }
-    if (railSegs.length) parkFenceGeos.push(buildFenceStripGeometry(railSegs, COPING_TOP, 1.1));
-  }
 
-  // One merged lawn mesh & one alpha-tested iron fence mesh for every small park
-  if (parkLawnGeos.length) {
-    const parkLawnMesh = new THREE.Mesh(mergeGeometries(parkLawnGeos, false), cpLawnMat);
-    parkLawnMesh.receiveShadow = true;
-    group.add(parkLawnMesh);
-  }
-  if (parkFenceGeos.length) {
-    group.add(new THREE.Mesh(mergeGeometries(parkFenceGeos, false), createIronFenceMaterial()));
-  }
-
-  // Historic Castle Clinton National Monument (1811): the round red-sandstone fort at the Battery's west edge, a ring of
-  // thick, slightly battered walls around an open bluestone courtyard, entered through a gate facing the park (+x)
-  {
-    const { x: cx, z: cz, r: R } = castleC;
-    const WALL = 2.6;
-    const H = 7.0;
-    const GATE = 1.8 / R; // half-angle of the 3.6 m gate
-    const sandstone = new THREE.MeshStandardNodeMaterial({ color: 0x8c5244, roughness: 0.78 });
-    // Cylinder angle t puts a vertex at (sin t, cos t): the gate at t = PI / 2
-    const outer = new THREE.CylinderGeometry(R - 0.3, R, H, 56, 1, true, Math.PI / 2 + GATE, Math.PI * 2 - 2 * GATE);
-    const inner = new THREE.CylinderGeometry(R - WALL, R - WALL, H, 56, 1, true, Math.PI / 2 + GATE, Math.PI * 2 - 2 * GATE);
-    const idx = inner.index.array; // face the inner wall into the courtyard
-    for (let i = 0; i < idx.length; i += 3) {
-      const t = idx[i + 1];
-      idx[i + 1] = idx[i + 2];
-      idx[i + 2] = t;
-    }
-    const nrm = inner.attributes.normal.array;
-    for (let i = 0; i < nrm.length; i++) nrm[i] = -nrm[i];
-    const top = new THREE.RingGeometry(R - WALL, R - 0.3, 56, 1, GATE, Math.PI * 2 - 2 * GATE).rotateX(-Math.PI / 2).translate(0, H / 2, 0);
-    const walls = new THREE.Mesh(mergeGeometries([outer, inner, top]), sandstone);
-    walls.position.set(cx, PARK_Y + H / 2, cz);
-    walls.castShadow = true;
-    walls.receiveShadow = true;
-    group.add(walls);
-    // Gate: jambs and the wall carried over it on a lintel; the parapet's granite coping
-    for (const t of [Math.PI / 2 - GATE, Math.PI / 2 + GATE]) {
-      addBox(sandstone, cx + Math.sin(t) * (R - WALL / 2 - 0.15), PARK_Y, cz + Math.cos(t) * (R - WALL / 2 - 0.15), 0.06, H, WALL + 0.3, t);
-    }
-    addBox(sandstone, cx + R - WALL / 2 - 0.15, PARK_Y + 4.3, cz, WALL + 0.3, H - 4.3, 2 * GATE * R + 0.3);
-    const coping = new THREE.Mesh(new THREE.CylinderGeometry(R - 0.15, R - 0.15, 0.32, 56, 1, true), graniteMat);
-    coping.position.set(cx, PARK_Y + H - 0.16, cz);
-    group.add(coping);
-    const yard = new THREE.Mesh(new THREE.CircleGeometry(R - WALL, 48).rotateX(-Math.PI / 2), pavingMat);
-    setPavingStyle(yard.geometry, 2);
-    yard.position.set(cx, PARK_Y + 0.006, cz);
-    yard.receiveShadow = true;
-    group.add(yard);
-    for (let i = treeSites.length - 1; i >= 0; i--) {
-      if (Math.hypot(treeSites[i].x - cx, treeSites[i].z - cz) < R + 3) treeSites.splice(i, 1);
-    }
-    for (let i = lampMatrices.length - 1; i >= 0; i--) {
-      if (Math.hypot(lampMatrices[i].elements[12] - cx, lampMatrices[i].elements[14] - cz) < R + 1) lampMatrices.splice(i, 1);
-    }
   }
 
   // Instanced plaza & park furniture: NYC Parks slatted benches (seat facing +z) & cast-iron lampposts with globes

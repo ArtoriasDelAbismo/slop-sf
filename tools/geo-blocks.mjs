@@ -1,12 +1,12 @@
 // Part 3: real Manhattan blocks ("curb islands") from the street centerline, by rasterising every at-grade roadway at
 // its curb-to-curb width over the land (minus a waterfront strip), then labelling what's left.
 // Each block: curb outline polygon, axis-aligned lot rects inside its property line (curb minus sidewalk), metadata.
-import { geo, Raster, rdpRing, ringArea, bbox, log } from './geo-base.mjs';
+import { geo, Raster, rdpRing, ringArea, bbox, log, DETAIL } from './geo-base.mjs';
 import { pieces, plazaPieces } from './geo-streets.mjs';
 
-export const CUT_Z = -7090; // detailed island south of here (≈ 129th St); Upper Manhattan beyond is low-detail
+export const CUT_Z = DETAIL.z0; // the detailed city's northern edge (the land beyond is low-detail)
 export const STRIP = 20; // waterfront strip kept clear of blocks (esplanade + shore highway), metres in from the bulkhead
-export const SIDEWALK = 4.6; // property line in from the curb (15 ft)
+export const SIDEWALK = 3.0; // property line in from the curb (Santa Fe's veredas are ~3 m)
 const RES = 1;
 
 // --- Roadways that bound blocks ----------------------------------------------------------------------------------------
@@ -21,7 +21,8 @@ const roads = [];
 const plazaRoads = [];
 for (const p of [...pieces, ...plazaPieces]) {
   if (p.level !== '13') continue; // at grade (from-level; ramps & viaducts drop out below)
-  const atGradeStreet = p.rw === '1' && !PARK_ROADS.test(p.name) && !HIGHWAYS.test(p.name) && !/DRIVEWAY|PEDESTRIAN|ALLEY/.test(p.name);
+  // streets and pedestrian streets (Peatonal San Martín...) both bound blocks
+  const atGradeStreet = (p.rw === '1' || p.rw === '6') && !PARK_ROADS.test(p.name) && !HIGHWAYS.test(p.name) && !/DRIVEWAY|PEDESTRIAN|ALLEY/.test(p.name);
   const surface9A = p.rw === '2' && /^(WEST ST|12 AVE|11 AVE)$/.test(p.name); // Route 9A at grade bounds the west side blocks
   const plaza = p.rw === '6' && p.name === 'BROADWAY'; // Broadway's pedestrian plazas (Times Sq, Herald Sq...)
   if (!atGradeStreet && !surface9A && !plaza) continue;

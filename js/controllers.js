@@ -30,8 +30,9 @@ import { polygonContact } from './building-collision.js';
 
 // Player models, animation and movement for walking, driving, cycling and flying.
 
-// Spawn on 5th Ave at 37th St, facing south down the avenue toward the Empire State Building (34th St)
-const SPAWN_Z = streetZ(37);
+// Initial placement near the origin (San Martín & Av. General López); main.js then places every mode at Plaza 25 de
+// Mayo (or where the player left it)
+const SPAWN_Z = 0;
 const groundCollider = { type: 'ground' };
 
 const CAR_DRIVE = {
@@ -581,7 +582,7 @@ class ThirdPersonControllerManager {
 
     return {
       type: 'car',
-      label: 'NYC Yellow Taxi',
+      label: 'Taxi',
       mesh: root,
       chassisPivot,
       carState,

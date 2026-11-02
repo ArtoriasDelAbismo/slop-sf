@@ -243,7 +243,7 @@ function buildCityBlocks(scene, landmarkColliders = []) {
   const LANDMARK_RESERVE = [
     ['Empire State Building'], ['Chrysler Building'], ['One Vanderbilt'], ['Grand Central Terminal'], ['MetLife Building'],
     ['Stephen A. Schwarzman Building'], ['One Times Square'], ['30 Rockefeller Plaza'], ['Citigroup Center'],
-    ['Seagram Building', { x0: avenueX('park') + 20 }], ['Flatiron Building'], ['One World Trade Center'], ['New York Stock Exchange']
+    ['Seagram Building', LANDMARK_SITES['Seagram Building'] && { x0: avenueX('park') + 20 }], ['Flatiron Building'], ['One World Trade Center'], ['New York Stock Exchange']
   ].map(([name, o]) => {
     const t = LANDMARK_SITES[name];
     if (!t) return null;

@@ -537,7 +537,8 @@ function buildStreetDetails(scene, colliders = []) {
   ];
   for (const cs of canyonShafts) {
     const shaft = new THREE.Mesh(godRayGeo, godRayMat);
-    const at = fromOldFrame(cs.x, cs.z); // (authored on the former compressed grid)
+    const at = fromOldFrame(cs.x, cs.z); // (authored on the former compressed grid; null outside New York)
+    if (!at) continue;
     shaft.position.set(at.x, cs.y, at.z);
     shaft.rotation.set(0.12, cs.rotY, cs.rotZ);
     group.add(shaft);
@@ -564,9 +565,11 @@ function buildStreetDetails(scene, colliders = []) {
     { x: -212,  z: 1255, windX: 0.95, windZ: -0.20 }  // One WTC / Financial District
   ];
   // (authored on the former compressed grid: carried onto the real streets; the Financial District one by One WTC)
-  for (const st of steamLocations) {
+  for (let i = steamLocations.length - 1; i >= 0; i--) {
+    const st = steamLocations[i];
     const wtc = LANDMARK_SITES['One World Trade Center'];
     const at = st.z > 1000 && wtc ? { x: wtc.x + 48, z: wtc.z - 40 } : fromOldFrame(st.x, st.z);
+    if (!at) { steamLocations.splice(i, 1); continue; } // New York only
     st.x = at.x;
     st.z = at.z;
   }
@@ -761,6 +764,7 @@ function buildStreetDetails(scene, colliders = []) {
   const cartMatrices = [];
   for (const [ox, oz] of cartLocations) {
     const raw = fromOldFrame(ox, oz);
+    if (!raw) continue; // New York only
     const site = findPropSite(raw.x, raw.z, 3.5, 3.5);
     if (!site) continue;
     const { x, z } = site;
