@@ -863,10 +863,12 @@ function createPreWarBuildingMaterial(opts = {}) {
     seed = 42.0,
     boxLocal = false,
     footprintLocal = false,
-    cornerPier = 1.2 // solid masonry at both ends of every wall above the shopfronts (box-local mode)
+    cornerPier = 1.2, // solid masonry at both ends of every wall above the shopfronts (box-local mode)
+    plaster = 0, // 1: smooth rendered stucco (revoque) on the street fronts instead of brick & ashlar coursing
+    roofColor = null // flat roof surface (default: darkened trim)
   } = opts;
 
-  const cacheKey = `${stoneColor}_${trimColor}_${windowWidth}_${floorHeight}_${litProbability}_${warmth}_${crownGlowHeight}_${seed}_${boxLocal}_${footprintLocal}_${cornerPier}`;
+  const cacheKey = `${stoneColor}_${trimColor}_${plaster}_${roofColor}_${windowWidth}_${floorHeight}_${litProbability}_${warmth}_${crownGlowHeight}_${seed}_${boxLocal}_${footprintLocal}_${cornerPier}`;
   if (_preWarCache.has(cacheKey)) {
     return _preWarCache.get(cacheKey);
   }
@@ -887,6 +889,9 @@ function createPreWarBuildingMaterial(opts = {}) {
   const uWarmth = uniform(warmth);
   const uCrownGlowHeight = uniform(crownGlowHeight);
   const uSeed = uniform(seed);
+  const uPlaster = uniform(plaster);
+  const uBrick = float(1.0).sub(uPlaster);
+  const cRoof = roofColor === null ? null : uniform(new THREE.Color(roofColor));
   const cSoot = color(0x4a4236);
   const cCanyonBounce = color(0xe89c68);
 
@@ -986,14 +991,15 @@ function createPreWarBuildingMaterial(opts = {}) {
     const mortarJoint = max(
       gridLine(colCoord.mul(brickL), brickL, 0.016),
       gridLine(vCoord, brickH, 0.016)
-    ).mul(float(1.0).sub(isRoof)).mul(float(1.0).sub(parged)).mul(float(1.0).sub(coping));
+    ).mul(float(1.0).sub(isRoof)).mul(float(1.0).sub(parged)).mul(float(1.0).sub(coping)).mul(mix(uBrick, float(1.0), back));
 
     // Per-brick tint fades out once bricks shrink to a pixel (and soot streaks once they do), so neither can shimmer
     const uFw = fwidth(uCoord);
     const brickVar = float(1.0).sub(smoothstep(0.5, 1.0, max(uFw.div(brickL), fwidth(rowCoord))));
     const brickCell = vec2(floor(colCoord), courseRow);
-    const brickRnd = hash2D(brickCell.add(vec2(uSeed, 5.3))).sub(0.5).mul(brickVar);
-    const brickWarmShift = hash2D(brickCell.add(vec2(17.1, uSeed))).sub(0.5).mul(0.12).mul(brickVar);
+    const brickK = brickVar.mul(mix(uBrick, float(1.0), back));
+    const brickRnd = hash2D(brickCell.add(vec2(uSeed, 5.3))).sub(0.5).mul(brickK);
+    const brickWarmShift = hash2D(brickCell.add(vec2(17.1, uSeed))).sub(0.5).mul(0.12).mul(brickK);
     const brickShiftVec = vec3(float(1.0).add(brickWarmShift), float(1.0), float(1.0).sub(brickWarmShift));
 
     const streakNoise = mix(float(0.5), noise2D(vec2(uCoord.mul(1.4), vCoord.mul(0.05))), float(1.0).sub(smoothstep(0.5, 1.0, uFw.mul(1.4))));
@@ -1054,7 +1060,13 @@ function createPreWarBuildingMaterial(opts = {}) {
       signPaint.assign(vec4(mix(ground, ink, max(letters, border)), cover));
     });
 
-    const wallTint = mix(mix(cStone, backTint, back), signPaint.xyz, signPaint.w);
+    // Rendered fronts: each building's own shade of the palette colour (tone), with faded, patchy repaints
+    const repaint = smoothstep(0.35, 0.8, noise2D(vec2(uCoord.mul(0.18), vCoord.mul(0.22)).add(tone.mul(17.0))));
+    const plasterTint = cStone.mul(mix(float(0.84), float(1.08), fract(tone.mul(7.31))))
+      .mul(vec3(mix(float(0.96), float(1.04), fract(tone.mul(3.13))), float(1.0), mix(float(1.04), float(0.95), fract(tone.mul(3.13)))))
+      .mul(float(1.0).sub(repaint.mul(0.07)));
+    const frontTint = mix(cStone, plasterTint, uPlaster);
+    const wallTint = mix(mix(frontTint, backTint, back), signPaint.xyz, signPaint.w);
     // Trim stone on the band courses, the storefront fascia and the coping capping every wall
     const trimMix = max(isCornice.mul(0.62).add(isGroundFloor.mul(0.28)), coping.mul(0.8));
     const masonryTint = mix(wallTint, cTrim, trimMix)
@@ -1082,7 +1094,7 @@ function createPreWarBuildingMaterial(opts = {}) {
 
     const frameCol = masonryTint.mul(0.46).mul(recessShade);
     const roofNoise = noise2D(positionWorld.xz.mul(0.35));
-    const roofCol = mix(cTrim.mul(0.42), cTrim.mul(0.62), roofNoise);
+    const roofCol = cRoof ? mix(cRoof.mul(0.86), cRoof.mul(1.04), roofNoise) : mix(cTrim.mul(0.42), cTrim.mul(0.62), roofNoise);
 
     const wallOrRoof = mix(masonryWeathered, roofCol, isRoof);
     const withFrames = mix(wallOrRoof, frameCol, isWindowOpening.mul(sashMask));
@@ -1129,7 +1141,7 @@ function createPreWarBuildingMaterial(opts = {}) {
     const colCoord = uCoord.div(brickL).add(mod(courseRow, 2.0).mul(0.5));
     const distU = float(0.5).sub(abs(fract(colCoord).sub(0.5))).mul(brickL);
     const distV = float(0.5).sub(abs(fract(rowCoord).sub(0.5))).mul(brickH);
-    const brickDome = smoothstep(0.0, 0.018, distU).mul(smoothstep(0.0, 0.018, distV)).mul(0.0045)
+    const brickDome = smoothstep(0.0, 0.018, distU).mul(smoothstep(0.0, 0.018, distV)).mul(0.0045).mul(mix(uBrick, float(1.0), back))
       .mul(float(1.0).sub(smoothstep(0.006, 0.012, footprint)));
 
     const sillLedge = filteredPulse(cellUV.y, effHalfY.sub(0.032), effHalfY, ramp.y).mul(inX).mul(0.016);

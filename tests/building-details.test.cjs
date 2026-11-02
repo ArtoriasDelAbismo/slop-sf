@@ -80,7 +80,7 @@ test('roof accessories avoid a taller overlapping building section', () => {
   assert.ok(checked > 5);
 });
 
-test('non-retail buildings lose shop awnings but retain rooftop details and construction sheds', () => {
+test('non-retail buildings lose shop awnings but retain rooftop details; no NYC sheds or water towers', () => {
   const b = building(square(0, 0, 40));
   let sheds = 0;
   for (let seed = 1; seed <= 40; seed++) {
@@ -88,9 +88,9 @@ test('non-retail buildings lose shop awnings but retain rooftop details and cons
     const residential = details({ ...b, storefronts: false }, seed * 104729);
     assert.equal(residential.awnings.length, 0);
     for (const key of ['cornices', 'waterTowers', 'hvacUnits']) assert.deepEqual(residential[key], retail[key]);
-    sheds += residential.scaffoldSheds.length;
+    sheds += residential.scaffoldSheds.length + retail.scaffoldSheds.length + retail.waterTowers.length;
   }
-  assert.ok(sheds > 0);
+  assert.equal(sheds, 0);
 });
 
 test('seeded decoration is deterministic, bounded and leaves surveyed geometry untouched', () => {

@@ -159,63 +159,59 @@ function buildCityBlocks(scene, landmarkColliders = []) {
   }, 6, 9);
   const allBlocks = [];
 
+  // Santa Fe facades: rendered brick (revoque) houses in whites, creams, ochres and faded pastels, exposed red brick
+  // (ladrillo visto), the centro's older stone-and-stucco fronts, 1960s–2000s concrete apartment towers, and a little
+  // glass in the newest towers along the Costanera and the boulevards. Roofs are flat terraces.
+  const plasterHouse = (stoneColor, trimColor, roofColor, seed) => [createPreWarBuildingMaterial, {
+    stoneColor, trimColor, roofColor, plaster: 1, windowGlassColor: 0x1d2a33, windowWidth: 3.0, windowRatioX: 0.42,
+    floorHeight: 3.6, litProbability: 0.5, warmth: 0.86, seed
+  }];
+  const tower = (stoneColor, trimColor, seed) => [createPreWarBuildingMaterial, {
+    stoneColor, trimColor, roofColor: 0x9a9890, plaster: 1, windowGlassColor: 0x1a2630, windowWidth: 3.2,
+    windowRatioX: 0.56, windowRatioY: 0.62, floorHeight: 2.9, litProbability: 0.58, warmth: 0.8, cornerPier: 0.6, seed
+  }];
   const facades = [
-    // 0: Pre-War Limestone & Buff Brick (5th Ave / Madison Ave / Upper East Side style)
-    [createPreWarBuildingMaterial, {
-      stoneColor: 0xd8cdb8,
-      trimColor: 0x9e937f,
-      windowGlassColor: 0x1a2836,
-      windowWidth: 2.6,
-      floorHeight: 3.7,
-      litProbability: 0.54,
-      warmth: 0.80,
-      seed: 12.4
+    plasterHouse(0xe9e2d2, 0xc9bfac, 0xb8b1a4, 12.4), // 0: white / cream revoque
+    plasterHouse(0xd9b98a, 0xb59a70, 0xa9a196, 27.8), // 1: ochre / sand
+    plasterHouse(0xd8a894, 0xe4d8c4, 0xa86a52, 41.2), // 2: faded salmon & terracotta pastels, tiled terraces
+    [createPreWarBuildingMaterial, { // 3: exposed red brick
+      stoneColor: 0xa65c42, trimColor: 0xcfc4b0, roofColor: 0x9c6450, windowGlassColor: 0x1a2630, windowWidth: 3.0,
+      windowRatioX: 0.44, floorHeight: 3.2, litProbability: 0.52, warmth: 0.84, seed: 53.6
     }],
-    // 1: Historic Warm Red/Terracotta Brick (Garment District / Chelsea / SoHo / Upper West Side)
-    [createPreWarBuildingMaterial, {
-      stoneColor: 0xa45a45,
-      trimColor: 0xcab9a0,
-      windowGlassColor: 0x16222e,
-      windowWidth: 2.4,
-      floorHeight: 3.5,
-      litProbability: 0.56,
-      warmth: 0.86,
-      seed: 27.8
+    tower(0xbdb8ae, 0x8f8a80, 63.5), // 4: grey concrete apartment tower
+    tower(0xe6e3dc, 0xb6b2aa, 81.9), // 5: white-rendered apartment tower
+    [createCurtainWallMaterial, { // 6: newer glass tower
+      glassTint: 0x2e4a5c, frameTint: 0xb6bec6, windowWidth: 2.9, floorHeight: 3.2, litProbability: 0.58,
+      warmth: 0.5, reflectivity: 0.9, seed: 94.3
     }],
-    // 2: Blue-Teal Curtain-Wall Glass (Park Ave / 6th Ave / Financial District modernism)
-    [createCurtainWallMaterial, {
-      glassTint: 0x1a3a52,
-      frameTint: 0x3b4c5b,
-      windowWidth: 2.7,
-      floorHeight: 3.9,
-      litProbability: 0.60,
-      warmth: 0.52,
-      reflectivity: 0.92,
-      seed: 63.5
-    }],
-    // 3: Dark Bronze / Charcoal Miesian Glass (Avenue of the Americas / Midtown West)
-    [createCurtainWallMaterial, {
-      glassTint: 0x242220,
-      frameTint: 0x3c3631,
-      windowWidth: 2.5,
-      floorHeight: 3.8,
-      litProbability: 0.64,
-      warmth: 0.72,
-      reflectivity: 0.88,
-      seed: 81.9
-    }],
-    // 4: Silver / Ice-Blue Contemporary Supertall Glass (Billionaires' Row / Hudson Yards / WTC)
-    [createCurtainWallMaterial, {
-      glassTint: 0x264664,
-      frameTint: 0xb0bcc8,
-      windowWidth: 2.9,
-      floorHeight: 4.1,
-      litProbability: 0.58,
-      warmth: 0.48,
-      reflectivity: 0.95,
-      seed: 94.3
+    [createPreWarBuildingMaterial, { // 7: the centro's older stone & stucco fronts
+      stoneColor: 0xd6cab2, trimColor: 0xa89a80, roofColor: 0xa8a29a, windowGlassColor: 0x1a2836, windowWidth: 2.8,
+      windowRatioX: 0.4, windowRatioY: 0.64, floorHeight: 4.0, litProbability: 0.5, warmth: 0.84, seed: 77.1
     }]
   ];
+  const GLASS = new Set([6]);
+  // Districts in the world frame (see tools/build-buildings.mjs): the microcentro, Bv. Pellegrini / Gálvez, the
+  // Costanera & Candioti towers by the Setúbal, and the low-rise barrios
+  function districtOf(x, z) {
+    if (x > -500 && x < 400 && z > -1100 && z < 450) return 'centro';
+    if (Math.abs(z + 2450) < 130 && x > -1300 && x < 2100) return 'boulevard';
+    if (x > 1000 && z < -1500) return 'costanera';
+    return 'barrio';
+  }
+  const pickFrom = (t, table) => { for (const [p, m] of table) { if (t < p) return m; t -= p; } return table[table.length - 1][1]; };
+  function facadeFor(b, tone, r) {
+    const d = districtOf(b.cx, b.cz);
+    if (b.height >= 20) {
+      if ((d === 'costanera' || d === 'boulevard') && r < 0.3) return 6;
+      return pickFrom(r, d === 'centro' ? [[0.4, 4], [0.45, 5], [0.15, 7]] : [[0.5, 4], [0.5, 5]]);
+    }
+    if (b.height >= 9) {
+      if (d === 'centro') return pickFrom(tone, [[0.3, 7], [0.2, 0], [0.2, 4], [0.15, 5], [0.15, 3]]);
+      return pickFrom(tone, [[0.25, 0], [0.15, 1], [0.2, 3], [0.2, 4], [0.2, 5]]);
+    }
+    if (d === 'centro') return pickFrom(tone, [[0.3, 7], [0.3, 0], [0.15, 1], [0.1, 2], [0.15, 3]]);
+    return pickFrom(tone, [[0.36, 0], [0.2, 1], [0.18, 2], [0.18, 3], [0.08, 4]]);
+  }
   const materials = facades.map(([create, opts]) => create({ ...opts, footprintLocal: true }));
   const storeys = facades.map(([, opts]) => opts.floorHeight);
 
@@ -346,9 +342,7 @@ function buildCityBlocks(scene, landmarkColliders = []) {
     const seed = Math.round(b.cx * 31 + b.cz * 17);
     const rand = mulberry32(seed);
     const tone = rand();
-    const mat = b.year && b.year < 1945 ? (tone < 0.8 ? 0 : 1)
-      : b.year && b.year < 1980 ? (tone < 0.55 ? 0 : 3)
-        : tone < 0.6 ? 2 : 4;
+    const mat = facadeFor(b, tone, rand());
     // The survey has no building-use data; choose retail independently of facade style and roof details.
     const storefronts = b.height >= 6 && mulberry32(seed ^ 0x53544f52)() < 0.55;
     const record = { ...b, tone, storefronts };
@@ -366,7 +360,7 @@ function buildCityBlocks(scene, landmarkColliders = []) {
     }
     const neighbours = nearbyReserves(b, 6);
     addSurveyedFireEscapes(b, detail, storeys[mat], neighbours);
-    detailsToPlace.push({ b: record, detail, masonry: mat < 2, rand });
+    detailsToPlace.push({ b: record, detail, masonry: !GLASS.has(mat), rand });
     allBlocks.push(detail);
   }
   // Reserve every fire escape before placing storefronts on neighbouring buildings.
@@ -377,7 +371,7 @@ function buildCityBlocks(scene, landmarkColliders = []) {
   }
   surveyedBuckets.forEach((items, i) => {
     if (!items.length) return;
-    group.add(createBuildingFootprints(materials[i], items, i < 2 ? b => nearbyReserves(b, 2) : undefined));
+    group.add(createBuildingFootprints(materials[i], items, !GLASS.has(i) ? b => nearbyReserves(b, 2) : undefined));
   });
 
   // Narrow empty lots become sitting areas with trees.

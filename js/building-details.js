@@ -78,10 +78,7 @@ function addBuildingDetails(b, detail, { masonry, rand, neighbours }) {
       }
       return null;
     }
-    if (masonry && b.height >= 14 && rand() < 0.25) {
-      const spot = roofSpot(4, 4);
-      if (spot) detail.waterTowers.push(spot);
-    }
+    // (No New York wooden water towers: Santa Fe's rooftop tanks sit in the HVAC-sized boxes below.)
     if (rand() < 0.35) {
       const w = 2.4 + rand() * 2.6, d = 2.4 + rand() * 2.6, spot = roofSpot(w, d);
       if (spot) detail.hvacUnits.push({ ...spot, w, d, h: masonry ? 2.4 : 3.4 });
@@ -99,7 +96,7 @@ function addBuildingDetails(b, detail, { masonry, rand, neighbours }) {
       if (blocked(x + e.nx * 2.65, z + e.nz * 2.65, 5.2, d + 0.4, cs, sn)) continue;
       const ry = Math.atan2(sn, cs);
       let item;
-      if (!detail.scaffoldSheds.length && rand() < 0.06) {
+      if (false) { // New York sidewalk sheds: not in Santa Fe
         item = { x: x + e.nx * 2, y: 0.22, z: z + e.nz * 2, w: 3.8, d, ry };
         detail.scaffoldSheds.push(item);
       } else {

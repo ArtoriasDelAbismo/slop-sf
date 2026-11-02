@@ -19,13 +19,16 @@ node --max-old-space-size=8192 tools/build-geodata.mjs                          
 # Google Open Buildings v3 footprints for the Santa Fe bbox (1.5 GB stream, kept out of git):
 curl -sL https://storage.googleapis.com/open-buildings-data/v3/polygons_s2_level_4_gzip/95b_buildings.csv.gz \
   | zcat | awk -F, 'NR==1 || ($1>-31.70 && $1<-31.58 && $2>-60.76 && $2<-60.66)' > tools/data/cache/gob_santafe.csv
+# Optional, measured heights: Open Buildings 2.5D Temporal rasters (~1 GB, see tools/sample-heights.py), sampled per footprint
+.venv/bin/python tools/sample-heights.py      # needs numpy, tifffile, imagecodecs, zarr
 node --max-old-space-size=8192 tools/build-buildings.mjs
 node --max-old-space-size=8192 tools/build-trees.mjs
 node --test tests/
 ```
 
-Building heights come from OpenStreetMap where it has them (a few hundred buildings); every other height is an
-**estimate** by district and footprint size. Most street trees are **estimated** too (a tree every ~9 m along the
+Building heights are **measured** for almost every building: sampled from Google's Open Buildings 2.5D Temporal model
+(2023, ~4 m resolution, so small houses and slender towers are approximate). The few it misses take an OpenStreetMap
+height tag, or failing that an **estimate** by district and footprint size. Most street trees are **estimated** too (a tree every ~9 m along the
 curbs), since OpenStreetMap maps few of them.
 
 ## License and data
@@ -33,5 +36,6 @@ curbs), since OpenStreetMap maps few of them.
 The project code is available under the [MIT License](LICENSE).
 
 Geographic data: © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL); building footprints
-from [Google Open Buildings](https://sites.research.google/open-buildings/) v3 (CC BY 4.0 / ODbL). Third-party data
+from [Google Open Buildings](https://sites.research.google/open-buildings/) v3 and heights from Open Buildings 2.5D
+Temporal (both CC BY 4.0 / ODbL). Third-party data
 and dependencies retain their respective licenses.

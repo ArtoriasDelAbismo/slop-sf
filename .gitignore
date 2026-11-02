@@ -2,3 +2,4 @@
 
 # Large third-party snapshots (re-downloadable)
 tools/data/cache/
+.venv/
